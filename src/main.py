@@ -206,12 +206,16 @@ def doit(args):
             if new_limit < 0:
                 new_limit = 0   
 
-    res = ahoy_set_power_limit(new_limit)
-    if res:
-        print(f'Set new inverter limit:    {new_limit} W') 
-        logging.info(f'Set new inverter limit: {new_limit} W')
-    else:
-        print(f'Inverter limit is not changed!')
+    if args.simulate:
+        print(f'Simulate new inverter limit: {new_limit} W') 
+        logging.info(f'Simulate new inverter limit: {new_limit} W')
+    else:   
+        res = ahoy_set_power_limit(new_limit)
+        if res:
+            print(f'Set new inverter limit:    {new_limit} W') 
+            logging.info(f'Set new inverter limit: {new_limit} W')
+        else:
+            print(f'Inverter limit is not changed!')
 
     
 # main
