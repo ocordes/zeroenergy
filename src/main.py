@@ -1,7 +1,7 @@
 # main.py 
 #
 # written by: Oliver Cordes 2024-01-20
-# changed by: Oliver Cordes 2024-01-22
+# changed by: Oliver Cordes 2024-01-29
 
 
 from dotenv import load_dotenv
@@ -220,41 +220,45 @@ def doit(args):
     
 # main
 
-parser = argparse.ArgumentParser(
-    prog='zeroenergy',    
-    description='Implementing zero power to the power grid (Nulleinspeisung)',
-    epilog='(C) 2024 Oliver Cordes')
+if __name__ == '__main__':
+
+    # parse the command line arguments
+
+    parser = argparse.ArgumentParser(
+        prog='zeroenergy',    
+        description='Implementing zero power to the power grid (Nulleinspeisung)',
+        epilog='(C) 2024 Oliver Cordes')
 
 
-parser.add_argument('-v', '--verbose',
+    parser.add_argument('-v', '--verbose',
                     action='store_true', help='enable verbose mode')  # on/off flag
-parser.add_argument('--version', action='version', 
+    parser.add_argument('--version', action='version', 
                     version=f'%(prog)s {__version__} (C) 2024 Oliver Cordes',
                     help='show the version and exit')
-parser.add_argument('-m', '--maxpower', action='store', 
+    parser.add_argument('-m', '--maxpower', action='store', 
                     type=int, default=-1,
                     help="set the maximum power (W) for the inverter")        
-parser.add_argument('-z', '--zero', action='store', 
+    parser.add_argument('-z', '--zero', action='store', 
                     type=int, default=65535,
                     help="set the zero value (W) for the grid")     
-parser.add_argument('-s', '--simulate', action='store_true',
+    parser.add_argument('-s', '--simulate', action='store_true',
                     help='simulate the setting of the inverter limit')
-parser.add_argument('-d', '--debug', action='store_true')
-parser.add_argument('--manuallimit', action='store', 
+    parser.add_argument('-d', '--debug', action='store_true')
+    parser.add_argument('--manuallimit', action='store', 
                     type=int, default=-1,
                     help="set the limit manually (W) for the inverter")     
 
-args = parser.parse_args()
+    args = parser.parse_args()
 
 
-if args.debug:
-    level = logging.DEBUG
-else:
-    level = logging.INFO
+    if args.debug:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
 
-logging.basicConfig(filename='zeroenergy.log', level=level, format='%(asctime)s %(levelname)s %(message)s')
-logging.info('Started')
+    logging.basicConfig(filename='zeroenergy.log', level=level, format='%(asctime)s %(levelname)s %(message)s')
+    logging.info('Started')
 
-doit(args)
-logging.info('Finished')
+    doit(args)
+    logging.info('Finished')
 
