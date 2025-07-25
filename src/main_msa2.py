@@ -32,6 +32,9 @@ battery_power_set_prev = 0
 
 battery_set_min = -1000   # minimum power set to the battery, charging
 battery_set_max = 200    # maximum power set to the battery, discharging
+power_high_consumption = 1000  # power consumption above this value will set the battery power set to 0 W
+
+battery_zero_buffer = 10  # buffer to avoid oscillation, use more grid power
 
 battery_total_in = 0 # total power set to the battery, charging
 battery_total_out = 0  # total power set to the battery, discharging
@@ -48,6 +51,7 @@ load_dotenv()
 battery_set_max = int(os.getenv('BATTERY_SET_MAX', battery_set_max))
 battery_set_min = int(os.getenv('BATTERY_SET_MIN', battery_set_min))
 
+power_high_consumption = int(os.getenv('POWER_HIGH_CONSUMPTION', power_high_consumption))
 
 # -------
 
@@ -120,6 +124,7 @@ def get_main_power():
 def doit(args):
     global battery_power_set, battery_power_set_prev
     global day_of_today, day_of_today_prev
+    global battery_total_in, battery_total_out
 
     time_period = 30  # seconds
     
@@ -179,10 +184,34 @@ def doit(args):
         print(f'current battery power set: {new_power_set} W')
 
         # shaping the new power set
+
+        # phase 1: check if the new power set is within the limits
         if new_power_set > battery_set_max:
             new_power_set = battery_set_max
         elif new_power_set < battery_set_min:
             new_power_set = battery_set_min
+
+
+        #  phase 2: check if we are falling or rising
+        if new_power_set > battery_power_set_prev:
+            # we are rising, so check charging or discharging
+            if new_power_set < 0:
+                # leave it as it is, we are charging
+                pass
+            else:
+                # leave it as it is, we are discharging
+                pass
+        if new_power_set < battery_power_set_prev:
+            # we are falling
+            new_power_set = new_power_set - battery_zero_buffer
+
+
+        # phase 3: check if the power consumption is far to high
+        if mp > power_high_consumption:
+            print(f'Power consumption is too high, setting power set to 0 W')
+            logging.warning(f'Power consumption is too high, setting power set to 0 W')
+            new_power_set = 0
+
 
         print(f'shaped new power set: {new_power_set} W')
         #if new_power_set >  0:
