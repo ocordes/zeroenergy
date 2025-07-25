@@ -23,12 +23,18 @@ inverter_limit = '.last_inverter_limit'
 
 # battery state
 battery_soc = None
+battery_grid_power = None
+
+battery_state = { 'soc': None, 'grid_on_p': None}
 
 battery_power_set = 0
 battery_power_set_prev = 0  
 
 battery_set_min = -1000   # minimum power set to the battery, charging
 battery_set_max = 200    # maximum power set to the battery, discharging
+power_high_consumption = 1000  # power consumption above this value will set the battery power set to 0 W
+
+battery_zero_buffer = 10  # buffer to avoid oscillation, use more grid power
 
 battery_total_in = 0 # total power set to the battery, charging
 battery_total_out = 0  # total power set to the battery, discharging
@@ -45,6 +51,7 @@ load_dotenv()
 battery_set_max = int(os.getenv('BATTERY_SET_MAX', battery_set_max))
 battery_set_min = int(os.getenv('BATTERY_SET_MIN', battery_set_min))
 
+power_high_consumption = int(os.getenv('POWER_HIGH_CONSUMPTION', power_high_consumption))
 
 # -------
 
@@ -117,14 +124,25 @@ def get_main_power():
 def doit(args):
     global battery_power_set, battery_power_set_prev
     global day_of_today, day_of_today_prev
+    global battery_total_in, battery_total_out
 
     time_period = 30  # seconds
     
     mqtt_topic = os.getenv('MQTT_TOPIC', 'homeassistant/number/MSA-280024370560/power_ctrl/set')
 
+
+    time.sleep(5)  # wait for MQTT connection to be established and messages to be received
+
     print('doit algorithm:')
     print(f'  BATTERY_SET_MAX: {battery_set_max} W')
     print(f'  BATTERY_SET_MIN: {battery_set_min} W')
+
+    bat_grid_power = battery_state['grid_on_p']
+    print(f'  BATTERY_ON_GRID_POWER: {bat_grid_power} W')
+
+    if bat_grid_power is not None:
+        battery_power_set = bat_grid_power
+        battery_power_set_prev = bat_grid_power
 
     while True:
         # print the current time
@@ -132,12 +150,15 @@ def doit(args):
         print('----', time.strftime('%Y-%m-%d %H:%M:%S', time_now), '----')
 
         day_of_today = time_now.tm_mday
-        if day_of_today != day_of_today_prev:
+        if (day_of_today != day_of_today_prev) and (day_of_today_prev != 0):
             # reset the total power counters at midnight
             print(f'Resetting total power counters for today!')
             battery_total_in = 0
             battery_total_out = 0
             day_of_today_prev = day_of_today
+
+        battery_soc = battery_state['soc']
+        battery_grid_power = battery_state['grid_on_p']
 
 
         # get the current power consumption
@@ -152,8 +173,10 @@ def doit(args):
 
         if battery_soc is not None:
             print(f'current battery state of charge: {battery_soc}%')
-            logging.info(f'current battery state of charge: {battery_soc}%')
+            
         
+        if battery_grid_power is not None:
+            print(f'current battery grid power: {battery_grid_power} W')
 
         # calculate the new power set
         new_power_set = int(battery_power_set + mp)
@@ -161,10 +184,34 @@ def doit(args):
         print(f'current battery power set: {new_power_set} W')
 
         # shaping the new power set
+
+        # phase 1: check if the new power set is within the limits
         if new_power_set > battery_set_max:
             new_power_set = battery_set_max
         elif new_power_set < battery_set_min:
             new_power_set = battery_set_min
+
+
+        #  phase 2: check if we are falling or rising
+        if new_power_set > battery_power_set_prev:
+            # we are rising, so check charging or discharging
+            if new_power_set < 0:
+                # leave it as it is, we are charging
+                pass
+            else:
+                # leave it as it is, we are discharging
+                pass
+        if new_power_set < battery_power_set_prev:
+            # we are falling
+            new_power_set = new_power_set - battery_zero_buffer
+
+
+        # phase 3: check if the power consumption is far to high
+        if mp > power_high_consumption:
+            print(f'Power consumption is too high, setting power set to 0 W')
+            logging.warning(f'Power consumption is too high, setting power set to 0 W')
+            new_power_set = 0
+
 
         print(f'shaped new power set: {new_power_set} W')
         #if new_power_set >  0:
@@ -199,7 +246,7 @@ def doit(args):
             else:
                 battery_total_in += time_period * abs(new_power_set) / 3600
 
-            logging.info(f'Total power set to battery: {battery_total_in:.1f} Wh (charging), {battery_total_out:.1f} Wh (discharging)')
+            logging.info(f'Total IO battery: {battery_total_in:.1f} Wh (IN), {battery_total_out:.1f} Wh (OUT), SOC: {battery_soc:.1f}%')
 
         else:
             print('Nothing to do, powerset for battery is zero!')
@@ -213,7 +260,7 @@ def doit(args):
 
     
 def on_message(client, userdata, message):
-    global battery_soc
+    global battery_soc, batter_grid_power
 
     # userdata is the structure we choose to provide, here it's a list()
     #userdata.append(message.payload)
@@ -222,8 +269,12 @@ def on_message(client, userdata, message):
     #print(f"Received message: {payload} {type(payload)}")
 
     battery_soc = float(payload['sys_soc'])
+    battery_grid_power = float(payload['grid_on_p'])
 
+    #print(battery_soc, battery_grid_power)
 
+    battery_state['soc'] = battery_soc
+    battery_state['grid_on_p'] = battery_grid_power
 
 
 # main
