@@ -1,7 +1,7 @@
 # main.py 
 #
 # written by: Oliver Cordes 2025-07-24
-# changed by: Oliver Cordes 2025-07-24
+# changed by: Oliver Cordes 2025-07-25
 
 
 from dotenv import load_dotenv
@@ -27,12 +27,26 @@ battery_soc = None
 battery_power_set = 0
 battery_power_set_prev = 0  
 
-battery_set_min = -100   # minimum power set to the battery, charging
-battery_set_max = 100    # maximum power set to the battery, discharging
+battery_set_min = -1000   # minimum power set to the battery, charging
+battery_set_max = 200    # maximum power set to the battery, discharging
 
+battery_total_in = 0 # total power set to the battery, charging
+battery_total_out = 0  # total power set to the battery, discharging
+
+# day of today, used to reset the total power counters
+# this is used to reset the counters at midnight
+day_of_today = 0
+day_of_today_prev = 0
 
 # load .env file
 load_dotenv()
+
+# read the environment variables
+battery_set_max = int(os.getenv('BATTERY_SET_MAX', battery_set_max))
+battery_set_min = int(os.getenv('BATTERY_SET_MIN', battery_set_min))
+
+
+# -------
 
 def save_limit_to_file(limit):
     """
@@ -102,12 +116,29 @@ def get_main_power():
 
 def doit(args):
     global battery_power_set, battery_power_set_prev
+    global day_of_today, day_of_today_prev
+
+    time_period = 30  # seconds
     
     mqtt_topic = os.getenv('MQTT_TOPIC', 'homeassistant/number/MSA-280024370560/power_ctrl/set')
 
+    print('doit algorithm:')
+    print(f'  BATTERY_SET_MAX: {battery_set_max} W')
+    print(f'  BATTERY_SET_MIN: {battery_set_min} W')
+
     while True:
         # print the current time
-        print('----', time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()), '----')
+        time_now = time.localtime()
+        print('----', time.strftime('%Y-%m-%d %H:%M:%S', time_now), '----')
+
+        day_of_today = time_now.tm_mday
+        if day_of_today != day_of_today_prev:
+            # reset the total power counters at midnight
+            print(f'Resetting total power counters for today!')
+            battery_total_in = 0
+            battery_total_out = 0
+            day_of_today_prev = day_of_today
+
 
         # get the current power consumption
         mp, error_msg = get_main_power()
@@ -130,18 +161,23 @@ def doit(args):
         print(f'current battery power set: {new_power_set} W')
 
         # shaping the new power set
-        if new_power_set > max(battery_set_max, args.maxpower):
-            new_power_set = max(battery_set_max, args.maxpower)
+        if new_power_set > battery_set_max:
+            new_power_set = battery_set_max
         elif new_power_set < battery_set_min:
             new_power_set = battery_set_min
 
         print(f'shaped new power set: {new_power_set} W')
-        if new_power_set >  0:
-            new_power_set = 0
+        #if new_power_set >  0:
+        #    new_power_set = 0
 
         if (new_power_set < 0) and (battery_soc is not None) and (battery_soc >= 99.9):
             print(f'Battery is full, setting power set to 0 W')
             logging.warning(f'Battery is full!')    
+            new_power_set = 0
+
+        if (new_power_set > 0) and (battery_soc is not None) and (battery_soc <= 10):
+            print(f'Battery is empty, setting power set to 0 W')
+            logging.warning(f'Battery is empty!')    
             new_power_set = 0
 
 
@@ -157,14 +193,22 @@ def doit(args):
                 
 
             logging.info(f'new power set for battery: {new_power_set} W')
+
+            if new_power_set > 0:
+                battery_total_out += time_period * new_power_set / 3600
+            else:
+                battery_total_in += time_period * abs(new_power_set) / 3600
+
+            logging.info(f'Total power set to battery: {battery_total_in:.1f} Wh (charging), {battery_total_out:.1f} Wh (discharging)')
+
         else:
             print('Nothing to do, powerset for battery is zero!')
             battery_power_set_prev = 0
             battery_power_set =  0
         
 
-        #print('----')
-        time.sleep(30)
+        # wait for the next time period
+        time.sleep(time_period)
     
 
     
@@ -197,21 +241,10 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose',
                     action='store_true', help='enable verbose mode')  # on/off flag
     parser.add_argument('--version', action='version', 
-                    version=f'%(prog)s {__version__} (C) 2024 Oliver Cordes',
+                    version=f'%(prog)s {__version__} (C) 2025 Oliver Cordes',
                     help='show the version and exit')
-    parser.add_argument('-m', '--maxpower', action='store', 
-                    type=int, default=-1,
-                    help="set the maximum power (W) for the inverter")        
-    parser.add_argument('-z', '--zero', action='store', 
-                    type=int, default=65535,
-                    help="set the zero value (W) for the grid")     
-    parser.add_argument('-s', '--simulate', action='store_true',
-                    help='simulate the setting of the inverter limit')
     parser.add_argument('-d', '--debug', action='store_true')
-    parser.add_argument('--manuallimit', action='store', 
-                    type=int, default=-1,
-                    help="set the limit manually (W) for the inverter")     
-
+    
     args = parser.parse_args()
 
 

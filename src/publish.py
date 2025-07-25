@@ -20,7 +20,7 @@ def on_publish(client, userdata, mid, reason_code, properties):
 
 unacked_publish = set()
 mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-mqttc.on_publish = on_publish
+#mqttc.on_publish = on_publish
 
 mqttc.user_data_set(unacked_publish)
 #mqttc.connect("mqtt.eclipseprojects.io")

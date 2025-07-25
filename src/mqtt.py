@@ -17,7 +17,11 @@ def on_publish(client, userdata, mid, reason_code, properties):
         print("The best solution to avoid race-condition is using the msg_info from publish()")
         print("We could also try using a list of acknowledged mid rather than removing from pending list,")
         print("but remember that mid could be re-used !")
-
+    except ValueError:
+        print("on_publish() is called with a mid not present in unacked_publish")
+        print(mid)
+        print(userdata)
+        
 
 def on_subscribe(client, userdata, mid, reason_code_list, properties):
     # Since we subscribed only for a single channel, reason_code_list contains
@@ -43,7 +47,7 @@ def mqtt_init(host, port=1883, keepalive=60):
     #client_id="zeroenergy", clean_session=True, userdata=unacked_publish)
     
     # set the on_publish callback
-    mqttc.on_publish = on_publish
+    #mqttc.on_publish = on_publish
 
     # set the on_subscribe callback
     mqttc.on_subscribe = on_subscribe
@@ -73,10 +77,10 @@ def mqtt_publish(topic, payload, qos=1):
     msg_info = mqttc.publish(topic, payload, qos=qos)
     
     # add the message ID to the unacked_publish set
-    unacked_publish.add(msg_info.mid)
+    #unacked_publish.add(msg_info.mid)
 
-    while len(unacked_publish):
-        time.sleep(0.1)
+    #while len(unacked_publish):
+    #    time.sleep(0.1)
 
 
     # Due to race-condition described above, the following way to wait for all publish is safer
