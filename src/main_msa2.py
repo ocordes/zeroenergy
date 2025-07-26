@@ -1,7 +1,7 @@
 # main.py 
 #
 # written by: Oliver Cordes 2025-07-24
-# changed by: Oliver Cordes 2025-07-25
+# changed by: Oliver Cordes 2025-07-26
 
 
 from dotenv import load_dotenv
@@ -116,6 +116,26 @@ def get_main_power():
 
 
 
+def get_main_power_cycle(update_cycle=30):
+    """
+    Get the current power from the main power source in a loop
+    """
+    #print(f'Get main power every {update_cycle} seconds')
+
+    nr_of_cycles = int(os.getenv('NR_POWER_READINGS', 5))
+    values = []
+    small_cycle = update_cycle / nr_of_cycles
+    for i in range(nr_of_cycles):
+        power, msg = get_main_power()
+        if power is not None:
+            #print(f'Current main power: {power} W')
+            values.append(power)
+        else:
+            print(msg)
+        time.sleep(small_cycle)  # wait for the next cycle
+
+    #print(values)
+    return sum(values)/len(values), msg
 
 
 
@@ -126,7 +146,9 @@ def doit(args):
     global day_of_today, day_of_today_prev
     global battery_total_in, battery_total_out
 
-    time_period = 30  # seconds
+    update_cycle = 30  # seconds
+
+    update_cycle = int(os.getenv('UPDATE_CYCLE', update_cycle))
     
     mqtt_topic = os.getenv('MQTT_TOPIC', 'homeassistant/number/MSA-280024370560/power_ctrl/set')
 
@@ -162,7 +184,7 @@ def doit(args):
 
 
         # get the current power consumption
-        mp, error_msg = get_main_power()
+        mp, error_msg = get_main_power_cycle(update_cycle=update_cycle)
 
         if mp is None:
             print(f'No main power defined: {error_msg}') 
@@ -242,9 +264,9 @@ def doit(args):
             logging.info(f'new power set for battery: {new_power_set} W')
 
             if new_power_set > 0:
-                battery_total_out += time_period * new_power_set / 3600
+                battery_total_out += update_cycle * new_power_set / 3600
             else:
-                battery_total_in += time_period * abs(new_power_set) / 3600
+                battery_total_in += update_cycle * abs(new_power_set) / 3600
 
             logging.info(f'Total IO battery: {battery_total_in:.1f} Wh (IN), {battery_total_out:.1f} Wh (OUT), SOC: {battery_soc:.1f}%')
 
@@ -255,7 +277,7 @@ def doit(args):
         
 
         # wait for the next time period
-        time.sleep(time_period)
+        #time.sleep(update_cycle)
     
 
     
