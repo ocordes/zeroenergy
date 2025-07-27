@@ -32,7 +32,7 @@ mqttc.loop_start()
 msg_info = mqttc.publish(
     "homeassistant/number/MSA-280024370560/power_ctrl/set", "-100", qos=1)
 
-unacked_publish.add(msg_info.mid)
+#unacked_publish.add(msg_info.mid)
 
 #msg_info2 = mqttc.publish("paho/test/topic", "my message2", qos=1)
 #unacked_publish.add(msg_info2.mid)
@@ -47,8 +47,8 @@ unacked_publish.add(msg_info.mid)
 
 
 # Wait for all message to be published
-while len(unacked_publish):
-    time.sleep(0.1)
+#while len(unacked_publish):
+#    time.sleep(0.1)
 
 # Due to race-condition described above, the following way to wait for all publish is safer
 msg_info.wait_for_publish()
