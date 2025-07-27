@@ -198,14 +198,16 @@ def doit(args):
             
         
         if battery_grid_power is not None:
-            print(f'current battery grid power: {battery_grid_power} W')
+            print(f'current battery grid power: {battery_grid_power} W (set: {battery_power_set} W)')
+            logging.info(f'current battery grid power: {battery_grid_power} W (set: {battery_power_set} W)')
+        
 
         # crosscheck the battery power set with the current grid power
-        if battery_grid_power is not None:
-            if battery_grid_power != battery_power_set:
-                print(f'Battery grid power {battery_grid_power} W does not match battery power set {battery_power_set} W, updating power set')
-                battery_power_set = battery_grid_power
-                battery_power_set_prev = battery_grid_power
+        # if battery_grid_power is not None:
+        #     if battery_grid_power != battery_power_set:
+        #         #print(f'Battery grid power {battery_grid_power} W does not match battery power set {battery_power_set} W, updating power set')
+        #         battery_power_set = battery_grid_power
+        #         battery_power_set_prev = battery_grid_power
 
         # calculate the new power set
         new_power_set = int(battery_power_set + mp)
