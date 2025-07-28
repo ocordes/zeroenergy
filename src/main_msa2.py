@@ -1,7 +1,7 @@
 # main.py 
 #
 # written by: Oliver Cordes 2025-07-24
-# changed by: Oliver Cordes 2025-07-26
+# changed by: Oliver Cordes 2025-07-28
 
 
 from dotenv import load_dotenv
@@ -15,8 +15,11 @@ import requests
 
 import argparse
 
+import numpy as np
+
 import mqtt 
 
+__author__ = 'Oliver Cordes'
 __version__ = '0.99.0'
 
 inverter_limit = '.last_inverter_limit'
@@ -32,12 +35,16 @@ battery_power_set_prev = 0
 
 battery_set_min = -1000   # minimum power set to the battery, charging
 battery_set_max = 200    # maximum power set to the battery, discharging
+battery_set_tolerance = 5  # tolerance for the battery power set, to avoid wrong calculations
 power_high_consumption = 1000  # power consumption above this value will set the battery power set to 0 W
 
 battery_zero_buffer = 10  # buffer to avoid oscillation, use more grid power
 
 battery_total_in = 0 # total power set to the battery, charging
 battery_total_out = 0  # total power set to the battery, discharging
+
+power_avg_algorithm = 'percentile'  # algorithm to use for the power averaging, 'mean', 'median', 'percentile'
+power_avg_percentile = 25  # percentile to use for the power averaging, only used if power_avg_algorithm is 'percentile'
 
 # day of today, used to reset the total power counters
 # this is used to reset the counters at midnight
@@ -50,8 +57,20 @@ load_dotenv()
 # read the environment variables
 battery_set_max = int(os.getenv('BATTERY_SET_MAX', battery_set_max))
 battery_set_min = int(os.getenv('BATTERY_SET_MIN', battery_set_min))
+battery_set_tolerance = int(os.getenv('BATTERY_SET_TOLERANCE', battery_set_tolerance))
 
 power_high_consumption = int(os.getenv('POWER_HIGH_CONSUMPTION', power_high_consumption))
+
+power_avg_algorithm = os.getenv('POWER_AVG_ALGORITHM', power_avg_algorithm)
+if power_avg_algorithm not in ['mean', 'median', 'percentile']:
+    print(f'Error: Invalid POWER_AVG_ALGORITHM {power_avg_algorithm}, using mean')
+    power_avg_algorithm = 'mean'
+power_avg_percentile = int(os.getenv('POWER_AVG_PERCENTILE', power_avg_percentile)) 
+if power_avg_algorithm == 'percentile':
+    if power_avg_percentile < 0 or power_avg_percentile > 100:
+        print(f'Error: Invalid POWER_AVG_PERCENTILE {power_avg_percentile}, using 75')
+        power_avg_percentile = 75   
+
 
 # -------
 
@@ -135,8 +154,18 @@ def get_main_power_cycle(update_cycle=30):
         time.sleep(small_cycle)  # wait for the next cycle
 
     #print(values)
-    return sum(values)/len(values), msg
+    avalues = np.array(values)
 
+
+    if power_avg_algorithm == 'median':
+        # calculate the median of the values
+        return np.median(avalues), msg
+    elif power_avg_algorithm == 'percentile':
+        # calculate the percentile of the values
+        return np.percentile(avalues, power_avg_percentile), msg
+
+    # calculate the mean of the values
+    return np.mean(avalues), msg
 
 
 
@@ -156,11 +185,16 @@ def doit(args):
     time.sleep(5)  # wait for MQTT connection to be established and messages to be received
 
     print('doit algorithm:')
-    print(f'  BATTERY_SET_MAX: {battery_set_max} W')
-    print(f'  BATTERY_SET_MIN: {battery_set_min} W')
+    print(f'  BATTERY_SET_MAX:       {battery_set_max} W')
+    print(f'  BATTERY_SET_MIN:       {battery_set_min} W')
 
     bat_grid_power = battery_state['grid_on_p']
     print(f'  BATTERY_ON_GRID_POWER: {bat_grid_power} W')
+
+    print(f'  BATTERY_SET_TOLERANCE: {battery_set_tolerance} W')
+    print(f'  POWER_AVG_ALGORITHM:   {power_avg_algorithm}')
+    if power_avg_algorithm == 'percentile':
+        print(f'  POWER_AVG_PERCENTILE:  {power_avg_percentile}')
 
     if bat_grid_power is not None:
         battery_power_set = bat_grid_power
@@ -179,10 +213,7 @@ def doit(args):
             battery_total_out = 0
             day_of_today_prev = day_of_today
 
-        battery_soc = battery_state['soc']
-        battery_grid_power = battery_state['grid_on_p']
-
-
+        
         # get the current power consumption
         mp, error_msg = get_main_power_cycle(update_cycle=update_cycle)
 
@@ -190,8 +221,12 @@ def doit(args):
             print(f'No main power defined: {error_msg}') 
             sys.exit(1)
 
-        print(f'current power consumption: {mp} W')
-        logging.info(f'current power consumption: {mp} W')
+        print(f'current power consumption: {mp} W (avg)')
+        logging.info(f'current power consumption: {mp} W (avg)')
+
+        # get the current battery state
+        battery_soc = battery_state['soc']
+        battery_grid_power = battery_state['grid_on_p']
 
         if battery_soc is not None:
             print(f'current battery state of charge: {battery_soc}%')
@@ -203,16 +238,17 @@ def doit(args):
         
 
         # crosscheck the battery power set with the current grid power
-        # if battery_grid_power is not None:
-        #     if battery_grid_power != battery_power_set:
-        #         #print(f'Battery grid power {battery_grid_power} W does not match battery power set {battery_power_set} W, updating power set')
-        #         battery_power_set = battery_grid_power
-        #         battery_power_set_prev = battery_grid_power
+        if battery_grid_power is not None:
+            if np.isclose(battery_grid_power, battery_power_set, atol=battery_set_tolerance) == False:
+                print(f'Battery grid power {battery_grid_power} W does not match battery power set {battery_power_set} W, updating power set')
+                logging.warning(f'Battery grid power {battery_grid_power} W does not match battery power set {battery_power_set} W, updating power set')
+                battery_power_set = battery_grid_power
+                battery_power_set_prev = battery_grid_power    
 
         # calculate the new power set
         new_power_set = int(battery_power_set + mp)
 
-        print(f'current battery power set: {new_power_set} W')
+        print(f' new power set for battery: {new_power_set} W')
 
         # shaping the new power set
 
@@ -239,38 +275,38 @@ def doit(args):
 
         # phase 3: check if the power consumption is far to high
         if mp > power_high_consumption:
-            print(f'Power consumption is too high, setting power set to 0 W')
+            print(f' power consumption is too high, setting power set to 0 W')
             logging.warning(f'Power consumption is too high, setting power set to 0 W')
             new_power_set = 0
 
 
-        print(f'shaped new power set: {new_power_set} W')
+        print(f' shaped new power set for battery: {new_power_set} W')
         #if new_power_set >  0:
         #    new_power_set = 0
 
         if (new_power_set < 0) and (battery_soc is not None) and (battery_soc >= 99.9):
-            print(f'Battery is full, setting power set to 0 W')
+            print(f' Battery is full, setting power set to 0 W')
             logging.warning(f'Battery is full!')    
             new_power_set = 0
 
         if (new_power_set > 0) and (battery_soc is not None) and (battery_soc <= 10.1):
-            print(f'Battery is empty, setting power set to 0 W')
+            print(f' Battery is empty, setting power set to 0 W')
             logging.warning(f'Battery is empty!')    
             new_power_set = 0
 
 
-        if new_power_set != 0:
+        if (new_power_set != 0) or (battery_power_set != 0):
             # if the new power set is the same as the previous one, add a small delta to avoid the same value
             if new_power_set == battery_power_set:
                 new_power_set = new_power_set - 0.1
 
-            print(f'new power set: {new_power_set} W')
+            print(f' power set for battery: {new_power_set} W')
             battery_power_set_prev = battery_power_set
             battery_power_set = new_power_set
             mqtt.mqtt_publish(mqtt_topic, str(new_power_set), qos=1)    
                 
 
-            logging.info(f'new power set for battery: {new_power_set} W')
+            logging.info(f'power set for battery: {new_power_set} W')
 
             if new_power_set > 0:
                 battery_total_out += update_cycle * new_power_set / 3600
@@ -280,7 +316,7 @@ def doit(args):
             logging.info(f'Total IO battery: {battery_total_in:.1f} Wh (IN), {battery_total_out:.1f} Wh (OUT), SOC: {battery_soc:.1f}%')
 
         else:
-            print('Nothing to do, powerset for battery is zero!')
+            print(' Nothing to do, powerset for battery is zero!')
             battery_power_set_prev = 0
             battery_power_set =  0
         
@@ -306,6 +342,7 @@ def on_message(client, userdata, message):
 
     battery_state['soc'] = battery_soc
     battery_state['grid_on_p'] = battery_grid_power
+    #print(battery_grid_power)
 
 
 # main
