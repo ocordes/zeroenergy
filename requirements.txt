@@ -1,6 +1,6 @@
 certifi==2025.7.14
 charset-normalizer==3.4.2
-coverage==7.10.0
+coverage==7.10.3
 idna==3.10
 numpy==2.0.2
 packaging==25.0
